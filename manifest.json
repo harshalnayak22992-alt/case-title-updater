@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Case Title Updater (Code → Definition)",
+  "version": "0.2.1",
+  "description": "Pick a case code and update the case title to CODE - Definition (or just Definition).",
+  "permissions": [
+    "scripting",
+    "activeTab",
+    "storage",
+    "clipboardWrite"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Update Case Title"
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ]
+}

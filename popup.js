@@ -112,18 +112,23 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
         .replace(/\s+\|\s+/g, ' | ') // Normalize separators
         .trim();
 
-      // Determine NC to use: only if selectedDate is explicitly provided AND not empty
+      // Determine NC to use:
+      // Priority 1: If a new date is selected, use it (replaces existing NC)
+      // Priority 2: If date is empty and preserve mode is on, keep existing NC
+      // Priority 3: Otherwise, no NC token
       let ncString = null;
       if (selectedDate && selectedDate.trim()) {
+        // User selected a new date - use it
         const d = new Date(selectedDate + 'T00:00:00');
         const day = String(d.getDate()).padStart(2, '0');
         const month = monthNamesArray[d.getMonth()];
         ncString = 'NC: ' + day + '-' + month;
-      } else if (preserveRest && existingNC) {
-        // Only preserve existing NC if we're in "preserve rest" mode AND no new date was selected
-        ncString = existingNC;
+      } else if (!selectedDate || !selectedDate.trim()) {
+        // Date field is empty - preserve existing NC only in preserve mode
+        if (preserveRest && existingNC) {
+          ncString = existingNC;
+        }
       }
-      // Otherwise ncString stays null (no date will be added)
 
       let newValue;
       if (preserveRest) {
@@ -209,18 +214,23 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
           .replace(/\s+\|\s+/g, ' | ') // Normalize separators
           .trim();
 
-        // Determine NC to use: only if selectedDate is explicitly provided AND not empty
+        // Determine NC to use:
+        // Priority 1: If a new date is selected, use it (replaces existing NC)
+        // Priority 2: If date is empty and preserve mode is on, keep existing NC
+        // Priority 3: Otherwise, no NC token
         let ncString = null;
         if (selectedDate && selectedDate.trim()) {
+          // User selected a new date - use it
           const d = new Date(selectedDate + 'T00:00:00');
           const day = String(d.getDate()).padStart(2, '0');
           const month = monthNamesArray[d.getMonth()];
           ncString = 'NC: ' + day + '-' + month;
-        } else if (preserveRest && existingNC) {
-          // Only preserve existing NC if we're in "preserve rest" mode AND no new date was selected
-          ncString = existingNC;
+        } else if (!selectedDate || !selectedDate.trim()) {
+          // Date field is empty - preserve existing NC only in preserve mode
+          if (preserveRest && existingNC) {
+            ncString = existingNC;
+          }
         }
-        // Otherwise ncString stays null (no date will be added)
 
         let newValue;
         if (preserveRest) {

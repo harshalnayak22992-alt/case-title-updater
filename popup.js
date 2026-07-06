@@ -60,7 +60,8 @@ function showStatus(msg, isError = false) {
 
 // Helper to extract and normalize NC token from a text
 function extractNCToken(text) {
-  const ncRegex = /\|\s*NC:\s*([^|]+)/i;
+  // Accept NC: whether or not it has a leading pipe/separator
+  const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
   const m = text.match(ncRegex);
   if (!m) return null;
   const val = m[1].trim();
@@ -81,7 +82,8 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        const ncRegex = /\|\s*NC:\s*([^|]+)/i;
+        // Accept NC: whether or not it has a leading pipe/separator
+        const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
         return 'NC: ' + m[1].trim();
@@ -105,7 +107,8 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
       // Remove ALL known codes and ALL NC tokens from the title to get clean content
       let cleanContent = current
         .replace(allCodesRegex, '') // Remove all known codes
-        .replace(/\|\s*NC:[^|]*/gi, '') // Remove all NC tokens
+        // Remove NC tokens whether or not they still have a leading pipe (covers cases where a preceding separator was removed)
+        .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '') // Remove all NC tokens
         .replace(/^\s*[\|\-:\–—]+\s*/, '') // Remove leading separators
         .replace(/\s*[\|\-:\–—]+\s*$/, '') // Remove trailing separators
         .replace(/\|\s*\|/g, '|') // Clean up double separators
@@ -182,7 +185,8 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        const ncRegex = /\|\s*NC:\s*([^|]+)/i;
+        // Accept NC: whether or not it has a leading pipe/separator
+        const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
         return 'NC: ' + m[1].trim();
@@ -207,7 +211,8 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
         // Remove ALL known codes and ALL NC tokens from the title to get clean content
         let cleanContent = current
           .replace(allCodesRegex, '') // Remove all known codes
-          .replace(/\|\s*NC:[^|]*/gi, '') // Remove all NC tokens
+          // Remove NC tokens whether or not they still have a leading pipe (covers cases where a preceding separator was removed)
+          .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '') // Remove all NC tokens
           .replace(/^\s*[\|\-:\–—]+\s*/, '') // Remove leading separators
           .replace(/\s*[\|\-:\–—]+\s*$/, '') // Remove trailing separators
           .replace(/\|\s*\|/g, '|') // Clean up double separators

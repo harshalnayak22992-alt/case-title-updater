@@ -13,6 +13,9 @@
       #previewRow { margin-top:8px; display:flex; gap:8px; align-items:center; }
       #previewBox { flex:1; }
       .info-box { background:#f0f8ff; padding:8px; border-radius:4px; margin-bottom:12px; font-size:12px; }
+      .note-grey { color:#888; font-size:11px; margin-top:12px; }
+      .warning { color:#a00; font-weight:bold; margin-top:8px; }
+      button:disabled { opacity:0.6; cursor:not-allowed; }
     </style>
   </head>
   <body>
@@ -40,6 +43,10 @@
     </div>
 
     <div id="status" class="small"></div>
+
+    <div id="warning" class="warning" style="display:none;">Cannot detect DFM</div>
+
+    <div class="note-grey">Data is stored locally only.</div>
 
     <script src="popup.js"></script>
   </body>

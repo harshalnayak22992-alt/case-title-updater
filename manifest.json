@@ -6,7 +6,6 @@
   "permissions": [
     "scripting",
     "activeTab",
-    "storage",
     "clipboardWrite"
   ],
   "action": {
@@ -14,6 +13,6 @@
     "default_title": "Update Case Title"
   },
   "host_permissions": [
-    "<all_urls>"
+    "https://*.dynamics.com/*"
   ]
 }

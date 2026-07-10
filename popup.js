@@ -34,6 +34,7 @@ const previewBtn = document.getElementById('preview');
 const status = document.getElementById('status');
 const previewBox = document.getElementById('previewBox');
 const copyBtn = document.getElementById('copyBtn');
+const warningEl = document.getElementById('warning');
 
 // Set default date to today
 const today = new Date();
@@ -58,9 +59,20 @@ function showStatus(msg, isError = false) {
   status.style.color = isError ? '#a00' : '#060';
 }
 
-// Helper to extract and normalize NC token from a text
+function disableControls() {
+  previewBtn.disabled = true;
+  applyBtn.disabled = true;
+  copyBtn.disabled = true;
+}
+
+function enableControls() {
+  previewBtn.disabled = false;
+  applyBtn.disabled = false;
+  copyBtn.disabled = false;
+}
+
+// Helper to extract NC token from a text
 function extractNCToken(text) {
-  // Accept NC: whether or not it has a leading pipe/separator
   const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
   const m = text.match(ncRegex);
   if (!m) return null;
@@ -68,7 +80,19 @@ function extractNCToken(text) {
   return 'NC: ' + val;
 }
 
-// Compute preview for the first matched element on the page (does NOT modify the DOM)
+// Find known code in a title string (prefer code near start)
+function findCodeInText(text) {
+  if (!text) return null;
+  const keys = Object.keys(mapping).map(k => k.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'));
+  const codePattern = keys.join('|');
+  // match either at start or after a separator/space
+  const regex = new RegExp('(?:^|[\\s\\|\\-:–—])(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)','i');
+  const m = text.match(regex);
+  if (m && m[1]) return m[1].toUpperCase();
+  return null;
+}
+
+// Compute preview (unchanged behavior)
 async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error('No active tab found');
@@ -76,13 +100,10 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
   const resp = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     func: (selector, code, def, preserveRest, selectedDate, allCodes, monthNamesArray) => {
-      // Build a pattern that matches any of the known codes
       const codePattern = Object.keys(allCodes).map(c => c.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
-      // Pattern to match: code at start of line/section (surrounded by separators or start)
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        // Accept NC: whether or not it has a leading pipe/separator
         const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
@@ -101,33 +122,24 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
       const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
       const current = isInput ? (el.value || '') : (el.textContent || '');
 
-      // Extract any existing NC token from the whole title BEFORE any modifications
       const existingNC = extractNC(current);
 
-      // Remove ALL known codes and ALL NC tokens from the title to get clean content
       let cleanContent = current
-        .replace(allCodesRegex, '') // Remove all known codes
-        // Remove NC tokens whether or not they still have a leading pipe (covers cases where a preceding separator was removed)
-        .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '') // Remove all NC tokens
-        .replace(/^\s*[\|\-:\–—]+\s*/, '') // Remove leading separators
-        .replace(/\s*[\|\-:\–—]+\s*$/, '') // Remove trailing separators
-        .replace(/\|\s*\|/g, '|') // Clean up double separators
-        .replace(/\s+\|\s+/g, ' | ') // Normalize separators
+        .replace(allCodesRegex, '')
+        .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '')
+        .replace(/^\s*[\|\-:\–—]+\s*/, '')
+        .replace(/\s*[\|\-:\–—]+\s*$/, '')
+        .replace(/\|\s*\|/g, '|')
+        .replace(/\s+\|\s+/g, ' | ')
         .trim();
 
-      // Determine NC to use:
-      // Priority 1: If a new date is selected, use it (replaces existing NC)
-      // Priority 2: If date is empty and preserve mode is on, keep existing NC
-      // Priority 3: Otherwise, no NC token
       let ncString = null;
       if (selectedDate && selectedDate.trim()) {
-        // User selected a new date - use it
         const d = new Date(selectedDate + 'T00:00:00');
         const day = String(d.getDate()).padStart(2, '0');
         const month = monthNamesArray[d.getMonth()];
         ncString = 'NC: ' + day + '-' + month;
       } else if (!selectedDate || !selectedDate.trim()) {
-        // Date field is empty - preserve existing NC only in preserve mode
         if (preserveRest && existingNC) {
           ncString = existingNC;
         }
@@ -135,14 +147,12 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
 
       let newValue;
       if (preserveRest) {
-        // Preserve rest: keep the clean content
         if (ncString) {
           newValue = code + ' | ' + ncString + (cleanContent ? ' | ' + cleanContent : '');
         } else {
           newValue = code + (cleanContent ? ' | ' + cleanContent : '');
         }
       } else {
-        // Don't preserve rest: only code and optional date
         if (ncString) {
           newValue = code + ' | ' + ncString;
         } else {
@@ -158,7 +168,7 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
   return resp?.[0]?.result;
 }
 
-// Apply changes to internal title
+// Apply changes (unchanged behavior)
 async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error('No active tab found');
@@ -180,12 +190,10 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
         }
       }
 
-      // Build patterns
       const codePattern = Object.keys(allCodes).map(c => c.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        // Accept NC: whether or not it has a leading pipe/separator
         const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
@@ -205,33 +213,24 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
         const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
         const current = isInput ? (el.value || '') : (el.textContent || '');
 
-        // Extract any existing NC token from the whole title BEFORE any modifications
         const existingNC = extractNC(current);
 
-        // Remove ALL known codes and ALL NC tokens from the title to get clean content
         let cleanContent = current
-          .replace(allCodesRegex, '') // Remove all known codes
-          // Remove NC tokens whether or not they still have a leading pipe (covers cases where a preceding separator was removed)
-          .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '') // Remove all NC tokens
-          .replace(/^\s*[\|\-:\–—]+\s*/, '') // Remove leading separators
-          .replace(/\s*[\|\-:\–—]+\s*$/, '') // Remove trailing separators
-          .replace(/\|\s*\|/g, '|') // Clean up double separators
-          .replace(/\s+\|\s+/g, ' | ') // Normalize separators
+          .replace(allCodesRegex, '')
+          .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '')
+          .replace(/^\s*[\|\-:\–—]+\s*/, '')
+          .replace(/\s*[\|\-:\–—]+\s*$/, '')
+          .replace(/\|\s*\|/g, '|')
+          .replace(/\s+\|\s+/g, ' | ')
           .trim();
 
-        // Determine NC to use:
-        // Priority 1: If a new date is selected, use it (replaces existing NC)
-        // Priority 2: If date is empty and preserve mode is on, keep existing NC
-        // Priority 3: Otherwise, no NC token
         let ncString = null;
         if (selectedDate && selectedDate.trim()) {
-          // User selected a new date - use it
           const d = new Date(selectedDate + 'T00:00:00');
           const day = String(d.getDate()).padStart(2, '0');
           const month = monthNamesArray[d.getMonth()];
           ncString = 'NC: ' + day + '-' + month;
         } else if (!selectedDate || !selectedDate.trim()) {
-          // Date field is empty - preserve existing NC only in preserve mode
           if (preserveRest && existingNC) {
             ncString = existingNC;
           }
@@ -239,14 +238,12 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
 
         let newValue;
         if (preserveRest) {
-          // Preserve rest: keep the clean content
           if (ncString) {
             newValue = code + ' | ' + ncString + (cleanContent ? ' | ' + cleanContent : '');
           } else {
             newValue = code + (cleanContent ? ' | ' + cleanContent : '');
           }
         } else {
-          // Don't preserve rest: only code and optional date
           if (ncString) {
             newValue = code + ' | ' + ncString;
           } else {
@@ -266,6 +263,95 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
   return resp?.[0]?.result;
 }
 
+// Initialization: check URL and try to read current internal title + detect code
+async function init() {
+  // disable controls until we validate
+  disableControls();
+  warningEl.style.display = 'none';
+  showStatus('');
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) {
+    showStatus('No active tab', true);
+    warningEl.style.display = 'block';
+    warningEl.textContent = 'Cannot detect DFM';
+    return;
+  }
+
+  const url = tab.url;
+  const allowed1 = 'https://onesupport.crm.dynamics.com/main.aspx';
+  const allowed2 = 'https://eudfm.crm4.dynamics.com/main.aspx';
+  if (!(url.startsWith(allowed1) || url.startsWith(allowed2))) {
+    // Not one of the allowed main.aspx pages
+    warningEl.style.display = 'block';
+    warningEl.textContent = 'Cannot detect DFM';
+    showStatus('Extension only runs on the designated Dynamics pages', true);
+    return;
+  }
+
+  // Try to read the internal title value from the page
+  try {
+    const res = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (selector) => {
+        try {
+          const el = document.querySelector(selector);
+          if (!el) return { found: false };
+          const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
+          const value = isInput ? (el.value || '') : (el.textContent || '');
+          return { found: true, value };
+        } catch (e) {
+          return { found: false, error: e.message };
+        }
+      },
+      args: [INTERNAL_TITLE_SELECTOR]
+    });
+
+    const result = res?.[0]?.result;
+    if (!result || !result.found) {
+      showStatus('Internal title field not found on this page', true);
+      warningEl.style.display = 'block';
+      warningEl.textContent = 'Cannot detect DFM';
+      return;
+    }
+
+    const currentTitle = result.value || '';
+    // detect code
+    const detectedCode = findCodeInText(currentTitle);
+    if (detectedCode && Array.from(codeSelect.options).some(o => o.value === detectedCode)) {
+      codeSelect.value = detectedCode;
+      showStatus('Detected code: ' + detectedCode);
+    } else {
+      // leave default first option
+      codeSelect.selectedIndex = 0;
+      showStatus('No known code detected in title (default selected)');
+    }
+
+    // enable controls now that detection succeeded
+    warningEl.style.display = 'none';
+    enableControls();
+
+    // initialize preview box with current title's preview (if desired)
+    // We'll compute preview for the currently selected code and current date selection
+    try {
+      const code = codeSelect.value;
+      const def = mapping[code];
+      const preserve = document.getElementById('preserveRest').checked;
+      const selectedDate = dateInput.value || '';
+      const p = await computePreviewOnPage(code, def, preserve, selectedDate);
+      if (p && p.success) previewBox.value = p.preview;
+    } catch (e) {
+      // ignore preview init errors
+    }
+  } catch (err) {
+    showStatus('Failed to read page: ' + err.message, true);
+    warningEl.style.display = 'block';
+    warningEl.textContent = 'Cannot detect DFM';
+    return;
+  }
+}
+
+// Standard preview/apply/copy handlers (mostly unchanged)
 applyBtn.addEventListener('click', async () => {
   showStatus('Applying...');
   const code = codeSelect.value;
@@ -335,3 +421,18 @@ copyBtn.addEventListener('click', async () => {
     }
   }
 });
+
+// When user manually changes codeSelect, update preview (nice UX)
+codeSelect.addEventListener('change', async () => {
+  try {
+    const code = codeSelect.value;
+    const def = mapping[code];
+    const preserve = document.getElementById('preserveRest').checked;
+    const selectedDate = dateInput.value || '';
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate);
+    if (res && res.success) previewBox.value = res.preview || '';
+  } catch (e) { /* ignore */ }
+});
+
+// Run init on load
+document.addEventListener('DOMContentLoaded', init);

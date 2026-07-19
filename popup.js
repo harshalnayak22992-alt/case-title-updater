@@ -3,23 +3,24 @@ const INTERNAL_TITLE_SELECTOR = 'textarea[aria-label="Internal title"]';
 
 // Mapping of codes → definitions (from your list)
 const mapping = {
+  "WOSE": "Waiting on Support Engineer/troubleshooting",
+  "WOCC": "Waiting on customer confirmation",
   "WBUG": "Pending Bug",
   "WICM": "Pending ICM",
-  "WPTA": "Waiting on PTL",
-  "WSEE": "Waiting on MS EE's",
+  "WOCT": "Waiting on Customer information",
+  "RTCL": "Ready to Close",
+  "WSEE": "Waiting on SEE",
+  "WOEE": "Waiting on EE",
+  "UNRC": "Unresponsive Customer",
   "UNSU": "Unsupported scenario/out of scope",
   "DUPL": "Duplicate case",
   "WCOL": "Awaiting collaboration",
-  "TRNF": "Transferred to other MS",
-  "WOCT": "Waiting on Customer",
-  "WOSE": "Waiting on Support Engineer",
-  "WOEE": "Waiting on EE",
+  "TRNF": "Transferred to other MS team",
   "WOTA": "Waiting on Technical Advisor",
   "MOTR": "Case on Monitoring",
-  "UNRC": "Unresponsive Customer",
   "TREC": "Pending technical Recovery",
   "MREC": "Pending manager Recovery",
-  "RTCL": "Ready to Close"
+  "WPTA": "Waiting on PTL"
 };
 
 // Month names

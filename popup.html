@@ -18,6 +18,7 @@
       .info-box { background:#f0f8ff; padding:8px; border-radius:4px; margin-bottom:12px; font-size:12px; }
       .note-grey { color:#888; font-size:11px; margin-top:12px; }
       .warning { color:#a00; font-weight:bold; margin-top:8px; }
+      .warning-box { background:#ffe6e6; color:#a00; padding:8px; border-radius:4px; margin-top:8px; font-size:12px; border-left:4px solid #a00; }
       button:disabled { opacity:0.6; cursor:not-allowed; }
       #notesInput { min-height:60px; resize:vertical; }
     </style>
@@ -30,6 +31,9 @@
 
     <label>📅 Next Contact Date (Optional)</label>
     <input id="dateInput" type="date" />
+    <div id="dateWarning" class="warning-box" style="display:none;">
+      ⚠️ Next Contact date needs review
+    </div>
     <div class="small" style="margin-top:4px;">Format in string: NC: DD-Month (e.g., NC: 04-July)</div>
 
     <label>📝 Additional Notes (Optional)</label>

@@ -17,6 +17,9 @@
       .warning { color:#a00; font-weight:bold; margin-top:8px; }
       button:disabled { opacity:0.6; cursor:not-allowed; }
       #notesInput { min-height:60px; resize:vertical; }
+      .notes-row { display:flex; gap:8px; align-items:flex-start; }
+      .notes-row textarea { flex:1; }
+      .clear-btn { flex:0 0 auto; height:34px; margin-top:6px; }
     </style>
   </head>
   <body>
@@ -25,17 +28,16 @@
     <label>Case code → definition</label>
     <select id="codeSelect"></select>
 
-    <label class="small">
-      <input id="preserveRest" type="checkbox" /> Replace only leading code (preserve the rest of the title)
-    </label>
-
     <label>📅 Next Contact Date (Optional)</label>
     <input id="dateInput" type="date" />
     <div class="small" style="margin-top:4px;">Format in string: NC: DD-Month (e.g., NC: 04-July)</div>
 
     <label>📝 Additional Notes (Optional)</label>
-    <textarea id="notesInput" placeholder="Add any additional information or notes here (e.g., '- changes needed from customer')"></textarea>
-    <div class="small" style="margin-top:4px;">These notes will be appended after the NC: date if you add one</div>
+    <div class="notes-row">
+      <textarea id="notesInput" placeholder="Add any additional information or notes here (e.g., '- changes needed from customer')"></textarea>
+      <button id="clearNotesBtn" class="clear-btn">Clear</button>
+    </div>
+    <div class="small" style="margin-top:4px;">This field will be auto-populated with any text that exists after the code and date in the current Internal title. Edit or remove as desired.</div>
 
     <div id="previewRow">
       <input id="previewBox" type="text" readonly placeholder="Preview will appear here" />

@@ -1,7 +1,7 @@
 // Hardcoded selector for Dynamics 365 Internal Title field
 const INTERNAL_TITLE_SELECTOR = 'textarea[aria-label="Internal title"]';
 
-// Mapping of codes 1 definitions (from your list)
+// Mapping of codes → definitions (from your list)
 const mapping = {
   "WOSE": "Waiting on Support Engineer/troubleshooting",
   "WOCC": "Waiting on customer confirmation",
@@ -31,7 +31,6 @@ const monthNames = ["January", "February", "March", "April", "May", "June",
 const codeSelect = document.getElementById('codeSelect');
 const dateInput = document.getElementById('dateInput');
 const notesInput = document.getElementById('notesInput');
-const clearNotesBtn = document.getElementById('clearNotesBtn');
 const applyBtn = document.getElementById('apply');
 const previewBtn = document.getElementById('preview');
 const status = document.getElementById('status');
@@ -53,7 +52,7 @@ dateInput.setAttribute('min', `${yyyy}-${mm}-${dd}`);
 Object.entries(mapping).forEach(([code, def]) => {
   const opt = document.createElement('option');
   opt.value = code;
-  opt.textContent = `${code} 1 ${def}`;
+  opt.textContent = `${code} — ${def}`;
   codeSelect.appendChild(opt);
 });
 
@@ -96,46 +95,19 @@ function findCodeInText(text) {
   return null;
 }
 
-// Extract trailing notes: the text after NC if NC exists, otherwise after the code
-function extractTrailingNotes(text) {
-  if (!text) return '';
-  // Look for NC first
-  const ncRegex = /NC:\s*([^\|]+?)(?:\s*\||\s*$)/i;
-  const ncMatch = ncRegex.exec(text);
-  if (ncMatch) {
-    const afterIndex = ncMatch.index + ncMatch[0].length;
-    let trailing = text.slice(afterIndex);
-    // remove separators and whitespace at start
-    trailing = trailing.replace(/^[\s\|\-:–—]+/, '').trim();
-    return trailing;
-  }
-
-  // No NC — try to find code and take everything after it
-  const keys = Object.keys(mapping).map(k => k.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'));
-  const codePattern = keys.join('|');
-  const codeRegex = new RegExp('(?:^|[\\s\\|\\-:–—])(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)','i');
-  const codeMatch = codeRegex.exec(text);
-  if (codeMatch) {
-    const afterIndex = codeMatch.index + codeMatch[0].length;
-    let trailing = text.slice(afterIndex);
-    trailing = trailing.replace(/^[\s\|\-:–—]+/, '').trim();
-    return trailing;
-  }
-
-  return '';
-}
-
-// Compute preview (no preserveRest behavior anymore)
-async function computePreviewOnPage(code, def, selectedDate, notes) {
+// Compute preview (now includes notes parameter)
+async function computePreviewOnPage(code, def, preserveRest, selectedDate, notes) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error('No active tab found');
 
   const resp = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: (selector, code, def, selectedDate, notes, allCodes, monthNamesArray) => {
+    func: (selector, code, def, preserveRest, selectedDate, notes, allCodes, monthNamesArray) => {
       const codePattern = Object.keys(allCodes).map(c => c.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
+      const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
+        // Robust to missing pipe
         const ncRegex = /NC:\s*([^\|]+?)(?:\s*\||\s*$)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
@@ -154,37 +126,74 @@ async function computePreviewOnPage(code, def, selectedDate, notes) {
       const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
       const current = isInput ? (el.value || '') : (el.textContent || '');
 
-      // Determine NC string based on selectedDate
+      const existingNC = extractNC(current);
+
+      // Clean content: remove codes, NC strings, and separators
+      let cleanContent = current
+        .replace(allCodesRegex, '')
+        .replace(/NC:\s*[^\|]+(?:\||$)/gi, '')
+        .replace(/^\s*[\|\-:\–—]+\s*/, '')
+        .replace(/\s*[\|\-:\–—]+\s*$/, '')
+        .replace(/\|\s*\|/g, '|')
+        .replace(/\s+\|\s+/g, ' | ')
+        .trim();
+
       let ncString = null;
       if (selectedDate && selectedDate.trim()) {
         const d = new Date(selectedDate + 'T00:00:00');
         const day = String(d.getDate()).padStart(2, '0');
         const month = monthNamesArray[d.getMonth()];
         ncString = 'NC: ' + day + '-' + month;
+      } else if (!selectedDate || !selectedDate.trim()) {
+        if (preserveRest && existingNC) {
+          ncString = existingNC;
+        }
       }
 
-      // Build: code [| NC] [| notes]
-      const parts = [code];
-      if (ncString) parts.push(ncString);
-      if (notes && notes.trim()) parts.push(notes.trim());
+      let newValue;
+      if (preserveRest) {
+        // Build: code | ncString (if present) | cleanContent (if present) | notes (if present)
+        const parts = [code];
+        if (ncString) parts.push(ncString);
+        if (cleanContent) parts.push(cleanContent);
+        if (notes && notes.trim()) parts.push(notes.trim());
+        
+        // If we have nc + no notes + no cleanContent, ensure trailing pipe
+        if (ncString && !cleanContent && !notes) {
+          newValue = parts.join(' | ') + ' | ';
+        } else {
+          newValue = parts.join(' | ');
+        }
+      } else {
+        // Build: code | ncString (if present) | notes (if present)
+        const parts = [code];
+        if (ncString) parts.push(ncString);
+        if (notes && notes.trim()) parts.push(notes.trim());
+        
+        // If we have nc + no notes, ensure trailing pipe
+        if (ncString && !notes) {
+          newValue = parts.join(' | ') + ' | ';
+        } else {
+          newValue = parts.join(' | ');
+        }
+      }
 
-      const newValue = parts.join(' | ');
       return { success: true, preview: newValue, original: current };
     },
-    args: [INTERNAL_TITLE_SELECTOR, code, def, selectedDate, notes, mapping, monthNames]
+    args: [INTERNAL_TITLE_SELECTOR, code, def, preserveRest, selectedDate, notes, mapping, monthNames]
   });
 
   return resp?.[0]?.result;
 }
 
-// Apply changes (no preserveRest)
-async function applyUpdateOnPage(code, def, selectedDate, notes) {
+// Apply changes (now includes notes parameter)
+async function applyUpdateOnPage(code, def, preserveRest, selectedDate, notes) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error('No active tab found');
 
   const resp = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: (selector, code, def, selectedDate, notes, allCodes, monthNamesArray) => {
+    func: (selector, code, def, preserveRest, selectedDate, notes, allCodes, monthNamesArray) => {
       function applyToElement(el, newValue) {
         const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
         if (isInput) {
@@ -199,6 +208,17 @@ async function applyUpdateOnPage(code, def, selectedDate, notes) {
         }
       }
 
+      const codePattern = Object.keys(allCodes).map(c => c.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
+      const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
+
+      function extractNC(text) {
+        // Robust to missing pipe
+        const ncRegex = /NC:\s*([^\|]+?)(?:\s*\||\s*$)/i;
+        const m = text.match(ncRegex);
+        if (!m) return null;
+        return 'NC: ' + m[1].trim();
+      }
+
       let els;
       try {
         els = Array.from(document.querySelectorAll(selector));
@@ -207,37 +227,78 @@ async function applyUpdateOnPage(code, def, selectedDate, notes) {
       }
       if (!els.length) return { success: false, error: 'Internal title field not found on this page' };
 
-      // Prepare NC string
-      let ncString = null;
-      if (selectedDate && selectedDate.trim()) {
-        const d = new Date(selectedDate + 'T00:00:00');
-        const day = String(d.getDate()).padStart(2, '0');
-        const month = monthNamesArray[d.getMonth()];
-        ncString = 'NC: ' + day + '-' + month;
-      }
-
-      // Construct new title
-      const parts = [code];
-      if (ncString) parts.push(ncString);
-      if (notes && notes.trim()) parts.push(notes.trim());
-      const newValue = parts.join(' | ');
-
       let modified = 0;
       els.forEach(el => {
+        const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
+        const current = isInput ? (el.value || '') : (el.textContent || '');
+
+        const existingNC = extractNC(current);
+
+        // Clean content: remove codes, NC strings, and separators
+        let cleanContent = current
+          .replace(allCodesRegex, '')
+          .replace(/NC:\s*[^\|]+(?:\||$)/gi, '')
+          .replace(/^\s*[\|\-:\–—]+\s*/, '')
+          .replace(/\s*[\|\-:\–—]+\s*$/, '')
+          .replace(/\|\s*\|/g, '|')
+          .replace(/\s+\|\s+/g, ' | ')
+          .trim();
+
+        let ncString = null;
+        if (selectedDate && selectedDate.trim()) {
+          const d = new Date(selectedDate + 'T00:00:00');
+          const day = String(d.getDate()).padStart(2, '0');
+          const month = monthNamesArray[d.getMonth()];
+          ncString = 'NC: ' + day + '-' + month;
+        } else if (!selectedDate || !selectedDate.trim()) {
+          if (preserveRest && existingNC) {
+            ncString = existingNC;
+          }
+        }
+
+        let newValue;
+        if (preserveRest) {
+          // Build: code | ncString (if present) | cleanContent (if present) | notes (if present)
+          const parts = [code];
+          if (ncString) parts.push(ncString);
+          if (cleanContent) parts.push(cleanContent);
+          if (notes && notes.trim()) parts.push(notes.trim());
+          
+          // If we have nc + no notes + no cleanContent, ensure trailing pipe
+          if (ncString && !cleanContent && !notes) {
+            newValue = parts.join(' | ') + ' | ';
+          } else {
+            newValue = parts.join(' | ');
+          }
+        } else {
+          // Build: code | ncString (if present) | notes (if present)
+          const parts = [code];
+          if (ncString) parts.push(ncString);
+          if (notes && notes.trim()) parts.push(notes.trim());
+          
+          // If we have nc + no notes, ensure trailing pipe
+          if (ncString && !notes) {
+            newValue = parts.join(' | ') + ' | ';
+          } else {
+            newValue = parts.join(' | ');
+          }
+        }
+
         applyToElement(el, newValue);
         modified++;
       });
 
       return { success: true, modified };
     },
-    args: [INTERNAL_TITLE_SELECTOR, code, def, selectedDate, notes, mapping, monthNames]
+    args: [INTERNAL_TITLE_SELECTOR, code, def, preserveRest, selectedDate, notes, mapping, monthNames]
   });
 
   return resp?.[0]?.result;
 }
 
-// Initialization: check URL and try to read current internal title + detect code + auto-populate notes
+// Initialization: check URL and try to read current internal title + detect code
 async function init() {
+  // disable controls until we validate
   disableControls();
   warningEl.style.display = 'none';
   showStatus('');
@@ -254,12 +315,14 @@ async function init() {
   const allowed1 = 'https://onesupport.crm.dynamics.com/main.aspx';
   const allowed2 = 'https://eudfm.crm4.dynamics.com/main.aspx';
   if (!(url.startsWith(allowed1) || url.startsWith(allowed2))) {
+    // Not one of the allowed main.aspx pages
     warningEl.style.display = 'block';
     warningEl.textContent = 'Cannot detect DFM';
     showStatus('Extension only runs on the designated Dynamics pages', true);
     return;
   }
 
+  // Try to read the internal title value from the page
   try {
     const res = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -286,32 +349,30 @@ async function init() {
     }
 
     const currentTitle = result.value || '';
-
     // detect code
     const detectedCode = findCodeInText(currentTitle);
     if (detectedCode && Array.from(codeSelect.options).some(o => o.value === detectedCode)) {
       codeSelect.value = detectedCode;
       showStatus('Detected code: ' + detectedCode);
     } else {
+      // leave default first option
       codeSelect.selectedIndex = 0;
       showStatus('No known code detected in title (default selected)');
     }
-
-    // Auto-populate notes from the trailing text after NC or after the code
-    const extractedNotes = extractTrailingNotes(currentTitle);
-    notesInput.value = extractedNotes;
 
     // enable controls now that detection succeeded
     warningEl.style.display = 'none';
     enableControls();
 
-    // initialize preview box with current title's preview
+    // initialize preview box with current title's preview (if desired)
+    // We'll compute preview for the currently selected code and current date selection
     try {
       const code = codeSelect.value;
       const def = mapping[code];
+      const preserve = document.getElementById('preserveRest').checked;
       const selectedDate = dateInput.value || '';
       const notes = notesInput.value || '';
-      const p = await computePreviewOnPage(code, def, selectedDate, notes);
+      const p = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
       if (p && p.success) previewBox.value = p.preview;
     } catch (e) {
       // ignore preview init errors
@@ -324,16 +385,17 @@ async function init() {
   }
 }
 
-// Apply handler
+// Standard preview/apply/copy handlers
 applyBtn.addEventListener('click', async () => {
   showStatus('Applying...');
   const code = codeSelect.value;
   const def = mapping[code];
+  const preserve = document.getElementById('preserveRest').checked;
   const selectedDate = dateInput.value || '';
   const notes = notesInput.value || '';
 
   try {
-    const res = await applyUpdateOnPage(code, def, selectedDate, notes);
+    const res = await applyUpdateOnPage(code, def, preserve, selectedDate, notes);
     if (!res) {
       showStatus('No response from content script', true);
     } else if (!res.success) {
@@ -342,7 +404,7 @@ applyBtn.addEventListener('click', async () => {
       showStatus(`Updated ${res.modified} element(s)`);
       // refresh preview after apply
       try {
-        const p = await computePreviewOnPage(code, def, selectedDate, notes);
+        const p = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
         if (p && p.success) previewBox.value = p.preview;
       } catch (e) { /* ignore preview refresh errors */ }
     }
@@ -351,16 +413,16 @@ applyBtn.addEventListener('click', async () => {
   }
 });
 
-// Preview handler
 previewBtn.addEventListener('click', async () => {
   showStatus('Computing preview...');
   const code = codeSelect.value;
   const def = mapping[code];
+  const preserve = document.getElementById('preserveRest').checked;
   const selectedDate = dateInput.value || '';
   const notes = notesInput.value || '';
 
   try {
-    const res = await computePreviewOnPage(code, def, selectedDate, notes);
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
     if (!res) {
       showStatus('No response from page', true);
     } else if (!res.success) {
@@ -375,7 +437,6 @@ previewBtn.addEventListener('click', async () => {
   }
 });
 
-// Copy handler
 copyBtn.addEventListener('click', async () => {
   const text = previewBox.value || '';
   if (!text) {
@@ -386,6 +447,7 @@ copyBtn.addEventListener('click', async () => {
     await navigator.clipboard.writeText(text);
     showStatus('Copied to clipboard');
   } catch (err) {
+    // fallback for older browsers: select and execCommand
     try {
       previewBox.select();
       document.execCommand('copy');
@@ -396,25 +458,28 @@ copyBtn.addEventListener('click', async () => {
   }
 });
 
-// Recompute preview on control changes
+// When user manually changes codeSelect, update preview (nice UX)
 codeSelect.addEventListener('change', async () => {
   try {
     const code = codeSelect.value;
     const def = mapping[code];
+    const preserve = document.getElementById('preserveRest').checked;
     const selectedDate = dateInput.value || '';
     const notes = notesInput.value || '';
-    const res = await computePreviewOnPage(code, def, selectedDate, notes);
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
     if (res && res.success) previewBox.value = res.preview || '';
   } catch (e) { /* ignore */ }
 });
 
+// When date or notes change, auto-update preview
 dateInput.addEventListener('change', async () => {
   try {
     const code = codeSelect.value;
     const def = mapping[code];
+    const preserve = document.getElementById('preserveRest').checked;
     const selectedDate = dateInput.value || '';
     const notes = notesInput.value || '';
-    const res = await computePreviewOnPage(code, def, selectedDate, notes);
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
     if (res && res.success) previewBox.value = res.preview || '';
   } catch (e) { /* ignore */ }
 });
@@ -423,24 +488,11 @@ notesInput.addEventListener('input', async () => {
   try {
     const code = codeSelect.value;
     const def = mapping[code];
+    const preserve = document.getElementById('preserveRest').checked;
     const selectedDate = dateInput.value || '';
     const notes = notesInput.value || '';
-    const res = await computePreviewOnPage(code, def, selectedDate, notes);
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
     if (res && res.success) previewBox.value = res.preview || '';
-  } catch (e) { /* ignore */ }
-});
-
-// Clear notes button
-clearNotesBtn.addEventListener('click', async () => {
-  notesInput.value = '';
-  try {
-    const code = codeSelect.value;
-    const def = mapping[code];
-    const selectedDate = dateInput.value || '';
-    const notes = '';
-    const res = await computePreviewOnPage(code, def, selectedDate, notes);
-    if (res && res.success) previewBox.value = res.preview || '';
-    showStatus('Notes cleared');
   } catch (e) { /* ignore */ }
 });
 

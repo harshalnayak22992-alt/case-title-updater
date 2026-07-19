@@ -73,9 +73,10 @@ function enableControls() {
   copyBtn.disabled = false;
 }
 
-// Helper to extract NC token from a text (now handles both with and without pipe)
+// Helper to extract NC token from a text (robust to missing pipe)
 function extractNCToken(text) {
-  const ncRegex = /NC:\s*([^|]+?)(?:\s*$|\s*\|)/i;
+  // Match NC: followed by content, with or without trailing pipe
+  const ncRegex = /NC:\s*([^\|]+?)(?:\s*\||\s*$)/i;
   const m = text.match(ncRegex);
   if (!m) return null;
   const val = m[1].trim();
@@ -106,7 +107,8 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate, notes
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        const ncRegex = /NC:\s*([^|]+?)(?:\s*$|\s*\|)/i;
+        // Robust to missing pipe
+        const ncRegex = /NC:\s*([^\|]+?)(?:\s*\||\s*$)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
         return 'NC: ' + m[1].trim();
@@ -129,7 +131,7 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate, notes
       // Clean content: remove codes, NC strings, and separators
       let cleanContent = current
         .replace(allCodesRegex, '')
-        .replace(/NC:\s*[^|]+(?:\||$)/gi, '')
+        .replace(/NC:\s*[^\|]+(?:\||$)/gi, '')
         .replace(/^\s*[\|\-:\–—]+\s*/, '')
         .replace(/\s*[\|\-:\–—]+\s*$/, '')
         .replace(/\|\s*\|/g, '|')
@@ -155,13 +157,25 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate, notes
         if (ncString) parts.push(ncString);
         if (cleanContent) parts.push(cleanContent);
         if (notes && notes.trim()) parts.push(notes.trim());
-        newValue = parts.join(' | ');
+        
+        // If we have nc + no notes + no cleanContent, ensure trailing pipe
+        if (ncString && !cleanContent && !notes) {
+          newValue = parts.join(' | ') + ' | ';
+        } else {
+          newValue = parts.join(' | ');
+        }
       } else {
         // Build: code | ncString (if present) | notes (if present)
         const parts = [code];
         if (ncString) parts.push(ncString);
         if (notes && notes.trim()) parts.push(notes.trim());
-        newValue = parts.join(' | ');
+        
+        // If we have nc + no notes, ensure trailing pipe
+        if (ncString && !notes) {
+          newValue = parts.join(' | ') + ' | ';
+        } else {
+          newValue = parts.join(' | ');
+        }
       }
 
       return { success: true, preview: newValue, original: current };
@@ -198,7 +212,8 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate, notes) {
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        const ncRegex = /NC:\s*([^|]+?)(?:\s*$|\s*\|)/i;
+        // Robust to missing pipe
+        const ncRegex = /NC:\s*([^\|]+?)(?:\s*\||\s*$)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
         return 'NC: ' + m[1].trim();
@@ -222,7 +237,7 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate, notes) {
         // Clean content: remove codes, NC strings, and separators
         let cleanContent = current
           .replace(allCodesRegex, '')
-          .replace(/NC:\s*[^|]+(?:\||$)/gi, '')
+          .replace(/NC:\s*[^\|]+(?:\||$)/gi, '')
           .replace(/^\s*[\|\-:\–—]+\s*/, '')
           .replace(/\s*[\|\-:\–—]+\s*$/, '')
           .replace(/\|\s*\|/g, '|')
@@ -248,13 +263,25 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate, notes) {
           if (ncString) parts.push(ncString);
           if (cleanContent) parts.push(cleanContent);
           if (notes && notes.trim()) parts.push(notes.trim());
-          newValue = parts.join(' | ');
+          
+          // If we have nc + no notes + no cleanContent, ensure trailing pipe
+          if (ncString && !cleanContent && !notes) {
+            newValue = parts.join(' | ') + ' | ';
+          } else {
+            newValue = parts.join(' | ');
+          }
         } else {
           // Build: code | ncString (if present) | notes (if present)
           const parts = [code];
           if (ncString) parts.push(ncString);
           if (notes && notes.trim()) parts.push(notes.trim());
-          newValue = parts.join(' | ');
+          
+          // If we have nc + no notes, ensure trailing pipe
+          if (ncString && !notes) {
+            newValue = parts.join(' | ') + ' | ';
+          } else {
+            newValue = parts.join(' | ');
+          }
         }
 
         applyToElement(el, newValue);

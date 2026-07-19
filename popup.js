@@ -38,16 +38,18 @@ const previewBox = document.getElementById('previewBox');
 const copyBtn = document.getElementById('copyBtn');
 const clearNotesBtn = document.getElementById('clearNotesBtn');
 const warningEl = document.getElementById('warning');
+const dateWarning = document.getElementById('dateWarning');
 
 // Set default date to today
 const today = new Date();
 const yyyy = today.getFullYear();
 const mm = String(today.getMonth() + 1).padStart(2, '0');
 const dd = String(today.getDate()).padStart(2, '0');
-dateInput.value = `${yyyy}-${mm}-${dd}`;
+const todayString = `${yyyy}-${mm}-${dd}`;
+dateInput.value = todayString;
 
 // Disable past dates
-dateInput.setAttribute('min', `${yyyy}-${mm}-${dd}`);
+dateInput.setAttribute('min', todayString);
 
 // Populate dropdown
 Object.entries(mapping).forEach(([code, def]) => {
@@ -72,6 +74,79 @@ function enableControls() {
   previewBtn.disabled = false;
   applyBtn.disabled = false;
   copyBtn.disabled = false;
+}
+
+// Extract NC date from internal title
+// Matches patterns like "NC: 15-July", "NC: 15-Jul", or "NC: 15/7" etc.
+function extractNCDate(text) {
+  if (!text) return null;
+  
+  // Pattern to match NC: followed by date info
+  // Matches: NC: DD-MonthName or NC: D-MonthName (case insensitive)
+  const ncRegex = /NC:\s*(\d{1,2})-([A-Za-z]+)/i;
+  const match = text.match(ncRegex);
+  
+  if (match) {
+    const day = match[1];
+    const monthStr = match[2].toLowerCase();
+    
+    // Find month index
+    const monthIndex = monthNames.findIndex(m => m.toLowerCase().startsWith(monthStr));
+    if (monthIndex !== -1) {
+      // Create date for this year
+      const ncDate = new Date(yyyy, monthIndex, parseInt(day));
+      
+      // Verify the date is valid (e.g., not April 31)
+      if (ncDate.getDate() === parseInt(day)) {
+        return ncDate;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Check if date is in the past
+function isDateInPast(date) {
+  if (!date) return false;
+  
+  // Create today's date at midnight for comparison
+  const todayMidnight = new Date(yyyy, today.getMonth(), today.getDate());
+  
+  // If date is before today, it's in the past
+  return date < todayMidnight;
+}
+
+// Convert Date object to YYYY-MM-DD string
+function dateToInputValue(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Update warning visibility and control state based on date
+function updateDateWarningAndControls() {
+  const selectedDateStr = dateInput.value;
+  
+  if (!selectedDateStr) {
+    dateWarning.style.display = 'none';
+    enableControls();
+    return;
+  }
+  
+  const selectedDate = new Date(selectedDateStr + 'T00:00:00');
+  const isPast = isDateInPast(selectedDate);
+  
+  if (isPast) {
+    dateWarning.style.display = 'block';
+    applyBtn.disabled = true;
+    copyBtn.disabled = true;
+    previewBtn.disabled = false; // Allow preview to see what would be generated
+  } else {
+    dateWarning.style.display = 'none';
+    enableControls();
+  }
 }
 
 // Helper to extract text after NC: date
@@ -225,6 +300,7 @@ async function init() {
   // disable controls until we validate
   disableControls();
   warningEl.style.display = 'none';
+  dateWarning.style.display = 'none';
   showStatus('');
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -285,15 +361,33 @@ async function init() {
       showStatus('No known code detected in title (default selected)');
     }
 
+    // Extract NC date from current title and auto-populate date field
+    const extractedNCDate = extractNCDate(currentTitle);
+    if (extractedNCDate) {
+      const dateString = dateToInputValue(extractedNCDate);
+      dateInput.value = dateString;
+      
+      // Check if it's in the past and show warning
+      if (isDateInPast(extractedNCDate)) {
+        dateWarning.style.display = 'block';
+        applyBtn.disabled = true;
+        copyBtn.disabled = true;
+        previewBtn.disabled = false;
+        showStatus('⚠️ NC date is in the past');
+      }
+    }
+
     // Extract and auto-populate notes from existing title
     const extractedNotes = extractNotesAfterNC(currentTitle);
     if (extractedNotes) {
       notesInput.value = extractedNotes;
     }
 
-    // enable controls now that detection succeeded
+    // enable controls (if not already disabled due to past date)
     warningEl.style.display = 'none';
-    enableControls();
+    if (!dateWarning.style.display || dateWarning.style.display === 'none') {
+      enableControls();
+    }
 
     // initialize preview box with current title's preview (if desired)
     // We'll compute preview for the currently selected code and current date selection
@@ -317,6 +411,16 @@ async function init() {
 
 // Standard preview/apply/copy handlers
 applyBtn.addEventListener('click', async () => {
+  // Check if date is in past before applying
+  const selectedDateStr = dateInput.value;
+  if (selectedDateStr) {
+    const selectedDate = new Date(selectedDateStr + 'T00:00:00');
+    if (isDateInPast(selectedDate)) {
+      showStatus('Error: Next contact date is in the past', true);
+      return;
+    }
+  }
+
   showStatus('Applying...');
   const code = codeSelect.value;
   const def = mapping[code];
@@ -366,6 +470,16 @@ previewBtn.addEventListener('click', async () => {
 });
 
 copyBtn.addEventListener('click', async () => {
+  // Check if date is in past before copying
+  const selectedDateStr = dateInput.value;
+  if (selectedDateStr) {
+    const selectedDate = new Date(selectedDateStr + 'T00:00:00');
+    if (isDateInPast(selectedDate)) {
+      showStatus('Error: Next contact date is in the past', true);
+      return;
+    }
+  }
+
   const text = previewBox.value || '';
   if (!text) {
     showStatus('Nothing to copy. Generate a preview first.', true);
@@ -413,8 +527,10 @@ codeSelect.addEventListener('change', async () => {
   } catch (e) { /* ignore */ }
 });
 
-// When date or notes change, auto-update preview
+// When date changes, check for past date and update preview
 dateInput.addEventListener('change', async () => {
+  updateDateWarningAndControls();
+  
   try {
     const code = codeSelect.value;
     const def = mapping[code];

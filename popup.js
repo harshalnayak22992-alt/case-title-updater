@@ -30,6 +30,7 @@ const monthNames = ["January", "February", "March", "April", "May", "June",
 
 const codeSelect = document.getElementById('codeSelect');
 const dateInput = document.getElementById('dateInput');
+const notesInput = document.getElementById('notesInput');
 const applyBtn = document.getElementById('apply');
 const previewBtn = document.getElementById('preview');
 const status = document.getElementById('status');
@@ -72,9 +73,9 @@ function enableControls() {
   copyBtn.disabled = false;
 }
 
-// Helper to extract NC token from a text
+// Helper to extract NC token from a text (now handles both with and without pipe)
 function extractNCToken(text) {
-  const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
+  const ncRegex = /NC:\s*([^|]+?)(?:\s*$|\s*\|)/i;
   const m = text.match(ncRegex);
   if (!m) return null;
   const val = m[1].trim();
@@ -93,19 +94,19 @@ function findCodeInText(text) {
   return null;
 }
 
-// Compute preview (unchanged behavior)
-async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
+// Compute preview (now includes notes parameter)
+async function computePreviewOnPage(code, def, preserveRest, selectedDate, notes) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error('No active tab found');
 
   const resp = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: (selector, code, def, preserveRest, selectedDate, allCodes, monthNamesArray) => {
+    func: (selector, code, def, preserveRest, selectedDate, notes, allCodes, monthNamesArray) => {
       const codePattern = Object.keys(allCodes).map(c => c.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')).join('|');
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
+        const ncRegex = /NC:\s*([^|]+?)(?:\s*$|\s*\|)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
         return 'NC: ' + m[1].trim();
@@ -125,9 +126,10 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
 
       const existingNC = extractNC(current);
 
+      // Clean content: remove codes, NC strings, and separators
       let cleanContent = current
         .replace(allCodesRegex, '')
-        .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '')
+        .replace(/NC:\s*[^|]+(?:\||$)/gi, '')
         .replace(/^\s*[\|\-:\–—]+\s*/, '')
         .replace(/\s*[\|\-:\–—]+\s*$/, '')
         .replace(/\|\s*\|/g, '|')
@@ -148,35 +150,36 @@ async function computePreviewOnPage(code, def, preserveRest, selectedDate) {
 
       let newValue;
       if (preserveRest) {
-        if (ncString) {
-          newValue = code + ' | ' + ncString + (cleanContent ? ' | ' + cleanContent : '');
-        } else {
-          newValue = code + (cleanContent ? ' | ' + cleanContent : '');
-        }
+        // Build: code | ncString (if present) | cleanContent (if present) | notes (if present)
+        const parts = [code];
+        if (ncString) parts.push(ncString);
+        if (cleanContent) parts.push(cleanContent);
+        if (notes && notes.trim()) parts.push(notes.trim());
+        newValue = parts.join(' | ');
       } else {
-        if (ncString) {
-          newValue = code + ' | ' + ncString;
-        } else {
-          newValue = code;
-        }
+        // Build: code | ncString (if present) | notes (if present)
+        const parts = [code];
+        if (ncString) parts.push(ncString);
+        if (notes && notes.trim()) parts.push(notes.trim());
+        newValue = parts.join(' | ');
       }
 
       return { success: true, preview: newValue, original: current };
     },
-    args: [INTERNAL_TITLE_SELECTOR, code, def, preserveRest, selectedDate, mapping, monthNames]
+    args: [INTERNAL_TITLE_SELECTOR, code, def, preserveRest, selectedDate, notes, mapping, monthNames]
   });
 
   return resp?.[0]?.result;
 }
 
-// Apply changes (unchanged behavior)
-async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
+// Apply changes (now includes notes parameter)
+async function applyUpdateOnPage(code, def, preserveRest, selectedDate, notes) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) throw new Error('No active tab found');
 
   const resp = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: (selector, code, def, preserveRest, selectedDate, allCodes, monthNamesArray) => {
+    func: (selector, code, def, preserveRest, selectedDate, notes, allCodes, monthNamesArray) => {
       function applyToElement(el, newValue) {
         const isInput = ('value' in el) && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') && !el.isContentEditable;
         if (isInput) {
@@ -195,7 +198,7 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
       const allCodesRegex = new RegExp('(' + codePattern + ')(?:\\s*(?:[\\-:\\|–—]+\\s*)?)', 'gi');
 
       function extractNC(text) {
-        const ncRegex = /(?:\|\s*)?NC:\s*([^|]+)/i;
+        const ncRegex = /NC:\s*([^|]+?)(?:\s*$|\s*\|)/i;
         const m = text.match(ncRegex);
         if (!m) return null;
         return 'NC: ' + m[1].trim();
@@ -216,9 +219,10 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
 
         const existingNC = extractNC(current);
 
+        // Clean content: remove codes, NC strings, and separators
         let cleanContent = current
           .replace(allCodesRegex, '')
-          .replace(/(?:\|\s*)?NC:\s*[^|]*/gi, '')
+          .replace(/NC:\s*[^|]+(?:\||$)/gi, '')
           .replace(/^\s*[\|\-:\–—]+\s*/, '')
           .replace(/\s*[\|\-:\–—]+\s*$/, '')
           .replace(/\|\s*\|/g, '|')
@@ -239,17 +243,18 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
 
         let newValue;
         if (preserveRest) {
-          if (ncString) {
-            newValue = code + ' | ' + ncString + (cleanContent ? ' | ' + cleanContent : '');
-          } else {
-            newValue = code + (cleanContent ? ' | ' + cleanContent : '');
-          }
+          // Build: code | ncString (if present) | cleanContent (if present) | notes (if present)
+          const parts = [code];
+          if (ncString) parts.push(ncString);
+          if (cleanContent) parts.push(cleanContent);
+          if (notes && notes.trim()) parts.push(notes.trim());
+          newValue = parts.join(' | ');
         } else {
-          if (ncString) {
-            newValue = code + ' | ' + ncString;
-          } else {
-            newValue = code;
-          }
+          // Build: code | ncString (if present) | notes (if present)
+          const parts = [code];
+          if (ncString) parts.push(ncString);
+          if (notes && notes.trim()) parts.push(notes.trim());
+          newValue = parts.join(' | ');
         }
 
         applyToElement(el, newValue);
@@ -258,7 +263,7 @@ async function applyUpdateOnPage(code, def, preserveRest, selectedDate) {
 
       return { success: true, modified };
     },
-    args: [INTERNAL_TITLE_SELECTOR, code, def, preserveRest, selectedDate, mapping, monthNames]
+    args: [INTERNAL_TITLE_SELECTOR, code, def, preserveRest, selectedDate, notes, mapping, monthNames]
   });
 
   return resp?.[0]?.result;
@@ -339,7 +344,8 @@ async function init() {
       const def = mapping[code];
       const preserve = document.getElementById('preserveRest').checked;
       const selectedDate = dateInput.value || '';
-      const p = await computePreviewOnPage(code, def, preserve, selectedDate);
+      const notes = notesInput.value || '';
+      const p = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
       if (p && p.success) previewBox.value = p.preview;
     } catch (e) {
       // ignore preview init errors
@@ -352,16 +358,17 @@ async function init() {
   }
 }
 
-// Standard preview/apply/copy handlers (mostly unchanged)
+// Standard preview/apply/copy handlers
 applyBtn.addEventListener('click', async () => {
   showStatus('Applying...');
   const code = codeSelect.value;
   const def = mapping[code];
   const preserve = document.getElementById('preserveRest').checked;
   const selectedDate = dateInput.value || '';
+  const notes = notesInput.value || '';
 
   try {
-    const res = await applyUpdateOnPage(code, def, preserve, selectedDate);
+    const res = await applyUpdateOnPage(code, def, preserve, selectedDate, notes);
     if (!res) {
       showStatus('No response from content script', true);
     } else if (!res.success) {
@@ -370,7 +377,7 @@ applyBtn.addEventListener('click', async () => {
       showStatus(`Updated ${res.modified} element(s)`);
       // refresh preview after apply
       try {
-        const p = await computePreviewOnPage(code, def, preserve, selectedDate);
+        const p = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
         if (p && p.success) previewBox.value = p.preview;
       } catch (e) { /* ignore preview refresh errors */ }
     }
@@ -385,9 +392,10 @@ previewBtn.addEventListener('click', async () => {
   const def = mapping[code];
   const preserve = document.getElementById('preserveRest').checked;
   const selectedDate = dateInput.value || '';
+  const notes = notesInput.value || '';
 
   try {
-    const res = await computePreviewOnPage(code, def, preserve, selectedDate);
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
     if (!res) {
       showStatus('No response from page', true);
     } else if (!res.success) {
@@ -430,7 +438,33 @@ codeSelect.addEventListener('change', async () => {
     const def = mapping[code];
     const preserve = document.getElementById('preserveRest').checked;
     const selectedDate = dateInput.value || '';
-    const res = await computePreviewOnPage(code, def, preserve, selectedDate);
+    const notes = notesInput.value || '';
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
+    if (res && res.success) previewBox.value = res.preview || '';
+  } catch (e) { /* ignore */ }
+});
+
+// When date or notes change, auto-update preview
+dateInput.addEventListener('change', async () => {
+  try {
+    const code = codeSelect.value;
+    const def = mapping[code];
+    const preserve = document.getElementById('preserveRest').checked;
+    const selectedDate = dateInput.value || '';
+    const notes = notesInput.value || '';
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
+    if (res && res.success) previewBox.value = res.preview || '';
+  } catch (e) { /* ignore */ }
+});
+
+notesInput.addEventListener('input', async () => {
+  try {
+    const code = codeSelect.value;
+    const def = mapping[code];
+    const preserve = document.getElementById('preserveRest').checked;
+    const selectedDate = dateInput.value || '';
+    const notes = notesInput.value || '';
+    const res = await computePreviewOnPage(code, def, preserve, selectedDate, notes);
     if (res && res.success) previewBox.value = res.preview || '';
   } catch (e) { /* ignore */ }
 });
